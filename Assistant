@@ -1,0 +1,146 @@
+import random
+import datetime
+import json
+from collections import defaultdict
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+class SmartAssistant:
+    def __init__(self, name="Alice"):
+        self.name = name
+        self.greetings = [
+            f"Hi, I'm {self.name}!",
+            f"Hello! How can I help you today?",
+            f"Welcome! I'm {self.name}, your digital assistant.",
+            f"Greetings! I'm here to assist you."
+        ]
+        # Knowledge base for learning
+        self.knowledge_base = defaultdict(list)
+        self.conversation_history = []
+        self.vectorizer = TfidfVectorizer()
+        self.load_knowledge()
+        
+    def load_knowledge(self):
+        """Loads existing knowledge from file"""
+        try:
+            with open('knowledge.json', 'r', encoding='utf-8') as f:
+                saved_data = json.load(f)
+                self.knowledge_base.update(saved_data)
+        except FileNotFoundError:
+            print("Creating new knowledge base...")
+    
+    def save_knowledge(self):
+        """Saves learned knowledge to file"""
+        with open('knowledge.json', 'w', encoding='utf-8') as f:
+            json.dump(dict(self.knowledge_base), f, ensure_ascii=False, indent=2)
+    
+    def learn_from_interaction(self, query, response, feedback):
+        """Learns from user interaction"""
+        if feedback > 0:  # Positive feedback
+            self.knowledge_base[query.lower()].append({
+                'response': response,
+                'score': feedback,
+                'uses': 1
+            })
+            self.save_knowledge()
+            
+    def analyze_sentiment(self, text):
+        """Simple sentiment analysis for responses"""
+        positive_words = {'good', 'great', 'excellent', 'thanks', 'happy', 'helpful'}
+        negative_words = {'bad', 'poor', 'unhelpful', 'wrong', 'incorrect'}
+        
+        words = set(text.lower().split())
+        positive_score = len(words & positive_words)
+        negative_score = len(words & negative_words)
+        
+        return positive_score - negative_score
+    
+    def find_similar_question(self, query):
+        """Finds similar question in knowledge base"""
+        if not self.knowledge_base:
+            return None
+            
+        questions = list(self.knowledge_base.keys())
+        tfidf_matrix = self.vectorizer.fit_transform([query] + questions)
+        similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:])[0]
+        
+        max_sim_idx = np.argmax(similarities)
+        if similarities[max_sim_idx] > 0.7:  # Similarity threshold
+            return questions[max_sim_idx]
+        return None
+    
+    def get_best_response(self, similar_question):
+        """Selects best response based on score and usage"""
+        if not similar_question:
+            return None
+            
+        responses = self.knowledge_base[similar_question]
+        if not responses:
+            return None
+            
+        # Weighted score based on rating and usage count
+        best_response = max(responses, 
+                          key=lambda x: (x['score'] * 0.7 + x['uses'] * 0.3))
+        best_response['uses'] += 1
+        return best_response['response']
+    
+    def process_query(self, query):
+        query = query.lower()
+        
+        # Basic responses
+        if "time" in query:
+            return self.get_time()
+        elif "date" in query:
+            return self.get_date()
+        
+        # Looking for similar questions
+        similar_question = self.find_similar_question(query)
+        if similar_question:
+            best_response = self.get_best_response(similar_question)
+            if best_response:
+                return best_response
+        
+        # Learning opportunity
+        return "This is a new question for me. Would you help me learn the correct response?"
+    
+    def get_time(self):
+        now = datetime.datetime.now()
+        return f"The current time is {now.strftime('%H:%M')}"
+    
+    def get_date(self):
+        now = datetime.datetime.now()
+        return f"Today's date is {now.strftime('%B %d, %Y')}"
+
+def main():
+    assistant = SmartAssistant()
+    print(f"\n{'='*50}")
+    print("Smart Assistant Demo")
+    print(f"{'='*50}\n")
+    print(random.choice(assistant.greetings))
+    
+    while True:
+        query = input("\nYour query (type 'exit' to end): ")
+        if query.lower() == 'exit':
+            print("\nThank you for the conversation! Have a great day!")
+            break
+        
+        response = assistant.process_query(query)
+        print(f"\n{assistant.name}: {response}")
+        
+        # Learning
+        if "?" in response:  # If assistant didn't know the answer
+            print("\nWould you like to teach me the correct response? (yes/no)")
+            if input().lower() == 'yes':
+                print("What should be the correct response?")
+                new_response = input()
+                assistant.learn_from_interaction(query, new_response, 1)
+                print("Thank you! I'll remember that for next time.")
+                
+        # Sentiment Analysis
+        sentiment = assistant.analyze_sentiment(response)
+        if sentiment > 0:
+            assistant.learn_from_interaction(query, response, sentiment)
+
+if __name__ == "__main__":
+    main()
